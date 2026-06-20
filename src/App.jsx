@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, CalendarDays, FileDown, FileUp, Menu, X, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, CalendarDays, FileDown, FileUp, Menu, X, MessageSquare, BarChart3, Map } from 'lucide-react';
 import Dashboard from './screens/Dashboard';
 import Guests from './screens/Guests';
 import Bookings from './screens/Bookings';
 import ImportData from './screens/ImportData';
 import ExportData from './screens/ExportData';
 import Communications from './screens/Communications';
+import Analytics from './screens/Analytics';
+import CalendarView from './screens/Calendar';
 import { seedDummyData } from './db';
 
 function App() {
@@ -18,9 +20,11 @@ function App() {
 
   const navigation = [
     { name: 'Dashboard', id: 'dashboard', icon: LayoutDashboard },
-    { name: 'Guests', id: 'guests', icon: Users },
+    { name: 'Room Calendar', id: 'calendar', icon: Map },
     { name: 'Bookings', id: 'bookings', icon: CalendarDays },
+    { name: 'Guests', id: 'guests', icon: Users },
     { name: 'Communications', id: 'communications', icon: MessageSquare },
+    { name: 'Analytics', id: 'analytics', icon: BarChart3 },
     { name: 'Import Excel', id: 'import', icon: FileUp },
     { name: 'Export Backup', id: 'export', icon: FileDown },
   ];
@@ -28,9 +32,11 @@ function App() {
   const renderScreen = () => {
     switch (currentScreen) {
       case 'dashboard': return <Dashboard navigate={setCurrentScreen} />;
+      case 'calendar': return <CalendarView />;
       case 'guests': return <Guests />;
       case 'bookings': return <Bookings />;
       case 'communications': return <Communications />;
+      case 'analytics': return <Analytics />;
       case 'import': return <ImportData />;
       case 'export': return <ExportData />;
       default: return <Dashboard navigate={setCurrentScreen} />;

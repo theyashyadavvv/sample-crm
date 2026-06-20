@@ -1,26 +1,27 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, X, Phone, Mail, MapPin } from 'lucide-react';
-import { getAllGuests, addGuest, getBookingsByGuest } from '../db';
+import { Search, Plus, X, Phone, Mail, MapPin, Award } from 'lucide-react';
+import { getAllGuests, addGuest, getAllBookings } from '../db';
 
 export default function Guests() {
   const [guests, setGuests] = useState([]);
+  const [bookings, setBookings] = useState([]);
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedGuest, setSelectedGuest] = useState(null);
-  const [guestBookings, setGuestBookings] = useState([]);
 
   // Form state
   const [formData, setFormData] = useState({ name: '', phone: '', email: '', city: '', source: '', notes: '' });
 
   useEffect(() => {
-    loadGuests();
+    loadData();
   }, []);
 
-  const loadGuests = async () => {
-    const data = await getAllGuests();
+  const loadData = async () => {
+    const [gData, bData] = await Promise.all([getAllGuests(), getAllBookings()]);
     // sort by newest first
-    data.sort((a, b) => b.createdAt - a.createdAt);
-    setGuests(data);
+    gData.sort((a, b) => b.createdAt - a.createdAt);
+    setGuests(gData);
+    setBookings(bData);
   };
 
   const handleAddSubmit = async (e) => {
@@ -29,28 +30,47 @@ export default function Guests() {
     await addGuest(formData);
     setFormData({ name: '', phone: '', email: '', city: '', source: '', notes: '' });
     setShowAddForm(false);
-    loadGuests();
+    loadData();
   };
 
-  const viewGuest = async (guest) => {
-    setSelectedGuest(guest);
-    const bookings = await getBookingsByGuest(guest.id);
-    bookings.sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn));
-    setGuestBookings(bookings);
-  };
+  const enhancedGuests = useMemo(() => {
+    const bookingMap = new Map();
+    bookings.forEach(b => {
+      if (!bookingMap.has(b.guestId)) bookingMap.set(b.guestId, { stays: 0, ltv: 0, history: [] });
+      const stats = bookingMap.get(b.guestId);
+      
+      const isLost = b.status === 'Cancelled' || b.status === 'No-Show';
+      if (!isLost) {
+        stats.stays += 1;
+        stats.ltv += parseFloat(b.amount) || 0;
+      }
+      stats.history.push(b);
+    });
+
+    return guests.map(g => {
+      const stats = bookingMap.get(g.id) || { stays: 0, ltv: 0, history: [] };
+      return { 
+        ...g, 
+        totalStays: stats.stays, 
+        ltv: stats.ltv, 
+        isVip: stats.stays >= 2 || stats.ltv >= 10000,
+        history: stats.history.sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn))
+      };
+    });
+  }, [guests, bookings]);
 
   const filteredGuests = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return guests;
-    return guests.filter(g => 
+    if (!q) return enhancedGuests;
+    return enhancedGuests.filter(g => 
       [g.name, g.phone, g.email, g.city, g.source].some(v => String(v || '').toLowerCase().includes(q))
     );
-  }, [guests, search]);
+  }, [enhancedGuests, search]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Guests</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Guests & Loyalty</h1>
         <button 
           onClick={() => setShowAddForm(true)}
           className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center hover:bg-indigo-700 transition"
@@ -134,7 +154,7 @@ export default function Guests() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loyalty</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
                 </tr>
               </thead>
@@ -145,18 +165,22 @@ export default function Guests() {
                   filteredGuests.map(guest => (
                     <tr 
                       key={guest.id} 
-                      onClick={() => viewGuest(guest)}
+                      onClick={() => setSelectedGuest(guest)}
                       className={`cursor-pointer hover:bg-slate-50 transition ${selectedGuest?.id === guest.id ? 'bg-indigo-50' : ''}`}
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{guest.name}</div>
+                        <div className="text-sm font-medium text-gray-900 flex items-center">
+                          {guest.name}
+                          {guest.isVip && <Award size={14} className="ml-2 text-amber-500" title="VIP Guest"/>}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 flex items-center"><Phone size={12} className="mr-1 text-gray-400"/> {guest.phone}</div>
                         {guest.email && <div className="text-xs text-gray-500 mt-1 flex items-center"><Mail size={12} className="mr-1"/> {guest.email}</div>}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {guest.city ? <span className="flex items-center"><MapPin size={12} className="mr-1"/> {guest.city}</span> : '-'}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{guest.totalStays} Stays</div>
+                        <div className="text-xs font-medium text-emerald-600 mt-1">₹{guest.ltv.toLocaleString()}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {guest.source || '-'}
@@ -174,7 +198,10 @@ export default function Guests() {
           <div className="bg-white shadow rounded-lg border border-gray-200 overflow-hidden flex flex-col h-fit sticky top-4">
             <div className="p-4 border-b border-gray-200 flex justify-between items-start bg-slate-50">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">{selectedGuest.name}</h2>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center">
+                  {selectedGuest.name}
+                  {selectedGuest.isVip && <span className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full border border-amber-200 flex items-center"><Award size={12} className="mr-1"/> VIP</span>}
+                </h2>
                 <p className="text-sm text-gray-500 mt-1">Customer ID: {selectedGuest.id}</p>
               </div>
               <button onClick={() => setSelectedGuest(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
@@ -182,6 +209,19 @@ export default function Guests() {
             
             <div className="p-5 flex-1 overflow-y-auto">
               <div className="space-y-4">
+                
+                {/* Loyalty Stats */}
+                <div className="grid grid-cols-2 gap-4 text-center bg-indigo-50 rounded-lg p-3 border border-indigo-100">
+                  <div>
+                    <p className="text-xs font-semibold text-indigo-800 uppercase">Lifetime Value</p>
+                    <p className="text-xl font-bold text-indigo-600 mt-1">₹{selectedGuest.ltv.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-indigo-800 uppercase">Total Stays</p>
+                    <p className="text-xl font-bold text-indigo-600 mt-1">{selectedGuest.totalStays}</p>
+                  </div>
+                </div>
+
                 <div>
                   <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Contact Info</h3>
                   <div className="grid grid-cols-2 gap-4 text-sm">
@@ -212,20 +252,22 @@ export default function Guests() {
                 )}
 
                 <div className="pt-4 border-t border-gray-100">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Booking History ({guestBookings.length})</h3>
-                  {guestBookings.length === 0 ? (
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Booking History ({selectedGuest.history.length})</h3>
+                  {selectedGuest.history.length === 0 ? (
                     <p className="text-sm text-gray-500 italic">No bookings found for this guest.</p>
                   ) : (
                     <ul className="space-y-3">
-                      {guestBookings.map(b => (
+                      {selectedGuest.history.map(b => (
                         <li key={b.id} className="bg-gray-50 p-3 rounded border border-gray-100">
                           <div className="flex justify-between items-start mb-1">
                             <span className="text-sm font-medium text-gray-900">{b.checkIn} to {b.checkOut}</span>
-                            <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{b.status}</span>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${b.status === 'Cancelled' || b.status === 'No-Show' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                              {b.status}
+                            </span>
                           </div>
                           <div className="text-xs text-gray-500 flex justify-between">
                             <span>Room: {b.room || 'Any'} | Pax: {b.guestCount}</span>
-                            <span>{b.paymentStatus}</span>
+                            <span className="font-medium text-gray-700">₹{b.amount} ({b.paymentStatus})</span>
                           </div>
                         </li>
                       ))}

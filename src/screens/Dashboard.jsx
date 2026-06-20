@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, CalendarDays, CreditCard, BedDouble, AlertCircle } from 'lucide-react';
+import { Users, CalendarDays, CreditCard, BedDouble, AlertCircle, Printer } from 'lucide-react';
 import { getAllGuests, getAllBookings } from '../db';
 
 export default function Dashboard({ navigate }) {
@@ -11,6 +11,7 @@ export default function Dashboard({ navigate }) {
   });
   const [todayActivity, setTodayActivity] = useState([]);
   const [upcomingBookings, setUpcomingBookings] = useState([]);
+  const [stayOvers, setStayOvers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export default function Dashboard({ navigate }) {
       let occupiedRooms = 0;
       const todayList = [];
       const upcomingList = [];
+      const stayOverList = [];
 
       // Join guest info
       const guestMap = new Map(guests.map(g => [g.id, g]));
@@ -38,17 +40,21 @@ export default function Dashboard({ navigate }) {
         const guestName = guestMap.get(b.guestId)?.name || 'Unknown Guest';
         b.guestName = guestName;
 
-        if (b.paymentStatus === 'Pending') pendingPayments++;
+        if (b.paymentStatus === 'Pending' && b.status !== 'Cancelled' && b.status !== 'No-Show') pendingPayments++;
         if (b.status === 'Checked In') occupiedRooms++;
 
-        if (b.checkIn === today) {
+        if (b.checkIn === today && b.status !== 'Cancelled' && b.status !== 'No-Show') {
           todayList.push({ ...b, type: 'Check-in' });
         }
-        if (b.checkOut === today) {
+        if (b.checkOut === today && (b.status === 'Checked In' || b.status === 'Confirmed')) {
           todayList.push({ ...b, type: 'Check-out' });
         }
+        
+        if (b.checkIn < today && b.checkOut > today && b.status === 'Checked In') {
+          stayOverList.push(b);
+        }
 
-        if (b.checkIn > today && b.checkIn <= nextWeekStr) {
+        if (b.checkIn > today && b.checkIn <= nextWeekStr && b.status !== 'Cancelled' && b.status !== 'No-Show') {
           upcomingList.push(b);
         }
       });
@@ -56,6 +62,7 @@ export default function Dashboard({ navigate }) {
       // Sort lists
       todayList.sort((a, b) => a.checkIn.localeCompare(b.checkIn));
       upcomingList.sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+      stayOverList.sort((a, b) => (a.room || '').localeCompare(b.room || ''));
 
       setStats({
         totalGuests: guests.length,
@@ -65,6 +72,7 @@ export default function Dashboard({ navigate }) {
       });
       setTodayActivity(todayList);
       setUpcomingBookings(upcomingList);
+      setStayOvers(stayOverList);
     } catch (error) {
       console.error("Failed to load dashboard data", error);
     } finally {
@@ -77,14 +85,19 @@ export default function Dashboard({ navigate }) {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 max-w-6xl mx-auto print:m-0 print:p-0 print:w-full print:max-w-none">
+      <div className="flex justify-between items-center print:hidden">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        {stats.totalGuests === 0 && (
-          <button onClick={() => navigate('import')} className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition">
-            Import Excel Data
+        <div className="flex gap-2">
+          <button onClick={() => window.print()} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition flex items-center shadow-sm">
+            <Printer size={16} className="mr-2" /> Print Manifest
           </button>
-        )}
+          {stats.totalGuests === 0 && (
+            <button onClick={() => navigate('import')} className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition">
+              Import Excel Data
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -161,13 +174,107 @@ export default function Dashboard({ navigate }) {
           </div>
         </div>
       </div>
+
+      {/* Print Only: Housekeeping Manifest */}
+      <div className="hidden print:block print:w-full">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Lakeside Resort - Daily Housekeeping Manifest</h1>
+          <p className="text-lg text-gray-600 mt-2">Date: {new Date().toLocaleDateString()}</p>
+        </div>
+
+        <div className="mb-8 border-2 border-gray-900 rounded-lg p-6 break-inside-avoid">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4 pb-2 border-b-2 border-gray-300">Check-Outs (Deep Cleaning Required)</h2>
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-gray-300">
+                <th className="py-2">Room</th>
+                <th className="py-2">Guest</th>
+                <th className="py-2">Status</th>
+                <th className="py-2">Done</th>
+              </tr>
+            </thead>
+            <tbody>
+              {todayActivity.filter(a => a.type === 'Check-out').length === 0 ? (
+                <tr><td colSpan="4" className="py-4 text-gray-500 italic">No check-outs today.</td></tr>
+              ) : (
+                todayActivity.filter(a => a.type === 'Check-out').map((a, i) => (
+                  <tr key={i} className="border-b border-gray-200">
+                    <td className="py-3 font-bold text-lg">{a.room || 'Unassigned'}</td>
+                    <td className="py-3">{a.guestName}</td>
+                    <td className="py-3">{a.status}</td>
+                    <td className="py-3"><div className="w-6 h-6 border-2 border-gray-400 rounded"></div></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mb-8 border-2 border-gray-900 rounded-lg p-6 break-inside-avoid">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4 pb-2 border-b-2 border-gray-300">Stay-Overs (Light Cleaning)</h2>
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-gray-300">
+                <th className="py-2">Room</th>
+                <th className="py-2">Guest</th>
+                <th className="py-2">Notes</th>
+                <th className="py-2">Done</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stayOvers.length === 0 ? (
+                <tr><td colSpan="4" className="py-4 text-gray-500 italic">No stay-overs today.</td></tr>
+              ) : (
+                stayOvers.map((s, i) => (
+                  <tr key={i} className="border-b border-gray-200">
+                    <td className="py-3 font-bold text-lg">{s.room || 'Unassigned'}</td>
+                    <td className="py-3">{s.guestName}</td>
+                    <td className="py-3 text-sm text-gray-600">{s.notes}</td>
+                    <td className="py-3"><div className="w-6 h-6 border-2 border-gray-400 rounded"></div></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="border-2 border-gray-900 rounded-lg p-6 break-inside-avoid">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4 pb-2 border-b-2 border-gray-300">Check-Ins (Prepare by 12 PM)</h2>
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-gray-300">
+                <th className="py-2">Room</th>
+                <th className="py-2">Guest</th>
+                <th className="py-2">Pax</th>
+                <th className="py-2">Notes</th>
+                <th className="py-2">Ready</th>
+              </tr>
+            </thead>
+            <tbody>
+              {todayActivity.filter(a => a.type === 'Check-in').length === 0 ? (
+                <tr><td colSpan="5" className="py-4 text-gray-500 italic">No check-ins today.</td></tr>
+              ) : (
+                todayActivity.filter(a => a.type === 'Check-in').map((a, i) => (
+                  <tr key={i} className="border-b border-gray-200">
+                    <td className="py-3 font-bold text-lg">{a.room || 'Unassigned'}</td>
+                    <td className="py-3">{a.guestName}</td>
+                    <td className="py-3">{a.guestCount}</td>
+                    <td className="py-3 text-sm text-gray-600">{a.notes}</td>
+                    <td className="py-3"><div className="w-6 h-6 border-2 border-gray-400 rounded"></div></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
 
 function StatCard({ title, value, icon: Icon, color }) {
   return (
-    <div className="bg-white overflow-hidden shadow rounded-lg border border-gray-100 flex items-center p-5">
+    <div className="bg-white overflow-hidden shadow rounded-lg border border-gray-100 flex items-center p-5 print:hidden">
       <div className={`p-3 rounded-md ${color} text-white flex-shrink-0`}>
         <Icon size={24} />
       </div>
